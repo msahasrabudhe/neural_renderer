@@ -7,9 +7,6 @@ from skimage.io import imread
 
 import neural_renderer.cuda.load_textures as load_textures_cuda
 
-texture_wrapping_dict = {'REPEAT': 0, 'MIRRORED_REPEAT': 1,
-                         'CLAMP_TO_EDGE': 2, 'CLAMP_TO_BORDER': 3}
-
 def load_mtl(filename_mtl):
     '''
     load color (Kd) and filename of textures from *.mtl
@@ -29,7 +26,7 @@ def load_mtl(filename_mtl):
     return colors, texture_filenames
 
 
-def load_textures(filename_obj, filename_mtl, texture_size, texture_wrapping='REPEAT', use_bilinear=True):
+def load_textures(filename_obj, filename_mtl, texture_size):
     # load vertices
     vertices = []
     with open(filename_obj) as f:
@@ -51,16 +48,16 @@ def load_textures(filename_obj, filename_mtl, texture_size, texture_wrapping='RE
         if line.split()[0] == 'f':
             vs = line.split()[1:]
             nv = len(vs)
-            if '/' in vs[0] and '//' not in vs[0]:
+            if '/' in vs[0]:
                 v0 = int(vs[0].split('/')[1])
             else:
                 v0 = 0
             for i in range(nv - 2):
-                if '/' in vs[i + 1] and '//' not in vs[i + 1]:
+                if '/' in vs[i + 1]:
                     v1 = int(vs[i + 1].split('/')[1])
                 else:
                     v1 = 0
-                if '/' in vs[i + 2] and '//' not in vs[i + 2]:
+                if '/' in vs[i + 2]:
                     v2 = int(vs[i + 2].split('/')[1])
                 else:
                     v2 = 0
@@ -71,6 +68,7 @@ def load_textures(filename_obj, filename_mtl, texture_size, texture_wrapping='RE
     faces = np.vstack(faces).astype(np.int32) - 1
     faces = vertices[faces]
     faces = torch.from_numpy(faces).cuda()
+    faces[1 < faces] = faces[1 < faces] % 1
 
     colors, texture_filenames = load_mtl(filename_mtl)
 
@@ -87,26 +85,15 @@ def load_textures(filename_obj, filename_mtl, texture_size, texture_wrapping='RE
     for material_name, filename_texture in texture_filenames.items():
         filename_texture = os.path.join(os.path.dirname(filename_obj), filename_texture)
         image = imread(filename_texture).astype(np.float32) / 255.
-
-        # texture image may have one channel (grey color)
-        if len(image.shape) == 2:
-            image = np.stack((image,)*3,-1)
-        # or has extral alpha channel shoule ignore for now
-        if image.shape[2] == 4:
-            image = image[:,:,:3]
-
         # pytorch does not support negative slicing for the moment
         image = image[::-1, :, :]
         image = torch.from_numpy(image.copy()).cuda()
         is_update = (np.array(material_names) == material_name).astype(np.int32)
         is_update = torch.from_numpy(is_update).cuda()
-        textures = load_textures_cuda.load_textures(image, faces, textures, is_update,
-                                                    texture_wrapping_dict[texture_wrapping],
-                                                    use_bilinear)
+        textures = load_textures_cuda.load_textures(image, faces, textures, is_update)
     return textures
 
-def load_obj(filename_obj, normalization=True, texture_size=4, load_texture=False,
-             texture_wrapping='REPEAT', use_bilinear=True):
+def load_obj(filename_obj, normalization=True, texture_size=4, load_texture=False):
     """
     Load Wavefront .obj file.
     This function only supports vertices (v x x x) and faces (f x x x).
@@ -145,9 +132,7 @@ def load_obj(filename_obj, normalization=True, texture_size=4, load_texture=Fals
         for line in lines:
             if line.startswith('mtllib'):
                 filename_mtl = os.path.join(os.path.dirname(filename_obj), line.split()[1])
-                textures = load_textures(filename_obj, filename_mtl, texture_size,
-                                         texture_wrapping=texture_wrapping,
-                                         use_bilinear=use_bilinear)
+                textures = load_textures(filename_obj, filename_mtl, texture_size)
         if textures is None:
             raise Exception('Failed to load textures.')
 

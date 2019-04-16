@@ -171,7 +171,7 @@ __global__ void forward_face_index_map_cuda_kernel_2(
 template <typename scalar_t>
 __global__ void forward_texture_sampling_cuda_kernel(
 		const scalar_t* faces,
-		const scalar_t* textures,
+		const scalar_t* faces_uv,
 		const int32_t* face_index_map,
 		const scalar_t* weight_map,
 		const scalar_t* depth_map,
@@ -193,31 +193,21 @@ __global__ void forward_texture_sampling_cuda_kernel(
         /*
             from global variables:
             batch number, num of faces, image_size, face[v012][RGB], pixel[RGB], weight[v012],
-            texture[ts][ts][ts][RGB], sampling indices[8], sampling_weights[8];
+            faces_uv[v012][RGB], sampling indices[8], sampling_weights[8];
         */
-        const int bn = i / (image_size * image_size);
-        const int nf = num_faces;
-        const int ts = texture_size;
-        const scalar_t* face = &faces[(bn * nf + face_index) * 9];
-        const scalar_t* texture = &textures[(bn * nf + face_index) * ts * ts * ts * 3];
+        const scalar_t* face_uv = &faces_uv[face_index * 9];
         scalar_t* pixel = &rgb_map[i * 3];
         const scalar_t* weight = &weight_map[i * 3];
-        const scalar_t depth = depth_map[i];
         int32_t* sampling_indices = &sampling_index_map[i * 8];
         scalar_t* sampling_weights = &sampling_weight_map[i * 8];
     
-        /* get texture index (float) */
-        scalar_t texture_index_float[3];
-        for (int k = 0; k < 3; k++) { scalar_t tif = weight[k] * (ts - 1) * (depth / (face[3 * k + 2]));
-            tif = max(tif, 0.);
-            tif = min(tif, ts - 1 - eps);
-            texture_index_float[k] = tif;
-        }
     
         /* blend */
         scalar_t new_pixel[3] = {0, 0, 0};
         for (int pn = 0; pn < 8; pn++) {
             scalar_t w = 1;                         // weight
+
+            /*
             int texture_index_int[3];            // index in source (int)
             for (int k = 0; k < 3; k++) {
                 if ((pn >> k) % 2 == 0) {
@@ -231,12 +221,24 @@ __global__ void forward_texture_sampling_cuda_kernel(
             }
     
             int isc = texture_index_int[0] * ts * ts + texture_index_int[1] * ts + texture_index_int[2];
-            for (int k = 0; k < 3; k++)
-                new_pixel[k] += w * texture[isc * 3 + k];
-            sampling_indices[pn] = isc;
-            sampling_weights[pn] = w;
+             */
+            if (pn < 3) {
+                w = weight[pn];
+                for (int k = 0; k < 2; k++)
+                {
+                    //new_pixel[k] += w * texture[isc * 3 + k];
+                    new_pixel[k] += w * face_uv[pn * 3 + k];
+                }
+                sampling_indices[pn] = pn;
+                sampling_weights[pn] = w;
+            }
+            else {
+                sampling_indices[pn] = 0;
+                sampling_weights[pn] = 0;
+            }
+
         }
-        for (int k = 0; k < 3; k++)
+        for (int k = 0; k < 2; k++)
             pixel[k] = new_pixel[k];
     }
 }

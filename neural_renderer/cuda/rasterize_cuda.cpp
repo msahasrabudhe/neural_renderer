@@ -190,7 +190,8 @@ at::Tensor backward_depth_map(
                                    image_size);
 }
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+// PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+PYBIND11_MODULE(rasterize, m) {
     m.def("forward_face_index_map", &forward_face_index_map, "FORWARD_FACE_INDEX_MAP (CUDA)");
     m.def("forward_texture_sampling", &forward_texture_sampling, "FORWARD_TEXTURE_SAMPLING (CUDA)");
     m.def("backward_pixel_map", &backward_pixel_map, "BACKWARD_PIXEL_MAP (CUDA)");
