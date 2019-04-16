@@ -46,7 +46,6 @@ class RasterizeFunction(Function):
             textures = torch.cuda.FloatTensor(1).fill_(0)
             ctx.texture_size = None
 
-
         face_index_map = torch.cuda.IntTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(-1)
         weight_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3).fill_(0.0)
         depth_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(ctx.far)
@@ -67,6 +66,7 @@ class RasterizeFunction(Function):
             face_inv_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3, 3).fill_(0)
         else:
             face_inv_map = torch.cuda.FloatTensor(1).fill_(0)
+
 
         face_index_map, weight_map, depth_map, face_inv_map =\
             RasterizeFunction.forward_face_index_map(ctx, faces, face_index_map,
@@ -108,9 +108,9 @@ class RasterizeFunction(Function):
                 ctx.saved_tensors
         # initialize output buffers
         # no need for explicit allocation of cuda.FloatTensor because zeros_like does it automatically
-        grad_faces = torch.zeros_like(faces, dtype=torch.float32)
+        grad_faces = torch.zeros_like(faces, dtype=torch.float32).to(ctx.device).contiguous()
         if ctx.return_rgb:
-            grad_textures = torch.zeros_like(textures, dtype=torch.float32)
+            grad_faces_uv = torch.zeros_like(textures, dtype=torch.float32).to(ctx.device).contiguous()
         else:
             grad_textures = torch.cuda.FloatTensor(1).fill_(0.0)
         
@@ -142,9 +142,9 @@ class RasterizeFunction(Function):
                                         ctx, faces, face_index_map, rgb_map,
                                         alpha_map, grad_rgb_map, grad_alpha_map,
                                         grad_faces)
-        grad_textures = RasterizeFunction.backward_textures(
-                                        ctx, face_index_map, sampling_weight_map,
-                                        sampling_index_map, grad_rgb_map, grad_textures)
+#        grad_textures = RasterizeFunction.backward_textures(
+#                                        ctx, face_index_map, sampling_weight_map,
+#                                        sampling_index_map, grad_rgb_map, grad_textures)
         grad_faces = RasterizeFunction.backward_depth_map(
                                         ctx, faces, depth_map, face_index_map,
                                         face_inv_map, weight_map, grad_depth_map,
@@ -153,7 +153,9 @@ class RasterizeFunction(Function):
         if not textures.requires_grad:
             grad_textures = None
 
-        return grad_faces, grad_textures, None, None, None, None, None, None, None, None
+        #return grad_faces, grad_faces_uv #, None, None, None, None, None, None, None, None
+        # return grad_faces, None
+        return grad_faces, None, None, None, None, None, None, None, None, None 
 
     @staticmethod
     def forward_face_index_map(ctx, faces, face_index_map, weight_map, 
@@ -344,35 +346,6 @@ def rasterize(
         eps=DEFAULT_EPS,
         background_color=DEFAULT_BACKGROUND_COLOR,
 ):
-    """
-    Generate RGB images from faces and textures.
-
-    Args:
-        faces: see `rasterize_rgbad`.
-        textures: see `rasterize_rgbad`.
-        image_size: see `rasterize_rgbad`.
-        anti_aliasing: see `rasterize_rgbad`.
-        near: see `rasterize_rgbad`.
-        far: see `rasterize_rgbad`.
-        eps: see `rasterize_rgbad`.
-        background_color: see `rasterize_rgbad`.
-
-    Returns:
-        ~torch.Tensor: RGB images. The shape is [batch size, 3, image_size, image_size].
-
-    """
-    return rasterize_rgbad(
-        faces, textures, image_size, anti_aliasing, near, far, eps, background_color, True, False, False)['rgb']
-
-def rasterize(
-        faces,
-        textures,
-        image_size=DEFAULT_IMAGE_SIZE,
-        anti_aliasing=DEFAULT_ANTI_ALIASING,
-        near=DEFAULT_NEAR,
-        far=DEFAULT_FAR,
-        eps=DEFAULT_EPS,
-        background_color=DEFAULT_BACKGROUND_COLOR):
     """
     Generate RGB images from faces and textures.
 
